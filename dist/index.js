@@ -406,6 +406,13 @@ function parseSession(file, archived) {
   const toolCallMap = /* @__PURE__ */ new Map();
   const filesRead = /* @__PURE__ */ new Set();
   const filesModified = /* @__PURE__ */ new Set();
+  const callArguments = /* @__PURE__ */ new Map();
+  const trackFile = (toolName, args) => {
+    const path = args?.path;
+    if (typeof path !== "string" || !path) return;
+    if (["read", "lsp_hover", "lsp_definition"].includes(toolName)) filesRead.add(path);
+    if (["write", "edit"].includes(toolName)) filesModified.add(path);
+  };
   const userMessages = [];
   const compactionSummaries = [];
   const branchSummaries = [];
@@ -444,19 +451,24 @@ function parseSession(file, archived) {
               if (block.type === "toolCall") {
                 const name2 = block.name;
                 toolCallMap.set(name2, (toolCallMap.get(name2) ?? 0) + 1);
+                if (typeof block.id === "string") callArguments.set(block.id, block);
               }
             }
           }
         }
         if (msg.role === "toolResult") {
-          const tn = msg.toolName;
-          if (tn === "read" || tn === "lsp_hover" || tn === "lsp_definition") {
-            const path = extractPathFromToolResult(entry, msg);
-            if (path) filesRead.add(path);
+          if (!msg.isError) {
+            const call = callArguments.get(msg.toolCallId);
+            const tn = call?.name ?? msg.toolName;
+            const path = call?.arguments?.path ?? msg.details?.path;
+            trackFile(tn, { path });
           }
-          if (tn === "write" || tn === "edit") {
-            const path = extractPathFromToolResult(entry, msg);
-            if (path) filesModified.add(path);
+          if (Array.isArray(msg.nestedCalls?.calls)) {
+            for (const call of msg.nestedCalls.calls) {
+              if (call.status !== "ok") continue;
+              toolCallMap.set(call.name, (toolCallMap.get(call.name) ?? 0) + 1);
+              trackFile(call.name, call.arguments);
+            }
           }
         }
         break;
@@ -508,16 +520,6 @@ function extractTextContent(content) {
     return content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
   }
   return "";
-}
-function extractPathFromToolResult(_entry, msg) {
-  if (msg.details?.path) return msg.details.path;
-  if (msg.details?.diff) {
-    const match = msg.details.diff?.match?.(/^  \d+ (.*)/m);
-    if (match) return match[1];
-  }
-  if (msg.toolName === "read" && msg.content?.[0]?.text) {
-  }
-  return null;
 }
 
 // src/utils.ts
@@ -899,6 +901,9 @@ function buildContent(s) {
   const parts = [];
   if (s.name) parts.push(s.name);
   parts.push(s.userMessages.join("\n"));
+  if (s.assistantText) parts.push(s.assistantText);
+  parts.push(s.cwd, s.id);
+  if (s.filesRead?.length) parts.push(s.filesRead.join(" "));
   if (s.compactionSummaries?.length) parts.push(s.compactionSummaries.join("\n"));
   if (s.branchSummaries?.length) parts.push(s.branchSummaries.join("\n"));
   if (s.filesModified?.length) parts.push(s.filesModified.join(" "));
@@ -909,8 +914,74 @@ function toFtsQuery(q) {
   return terms.join(" OR ");
 }
 
+// src/literal-search.ts
+import { readFileSync as readFileSync3 } from "node:fs";
+import { basename as basename2, dirname as dirname3 } from "node:path";
+async function searchLiteral(scope, query, limit = 10, project) {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return [];
+  const results = /* @__PURE__ */ new Map();
+  const pause = createYielder();
+  for (const { file, archived } of discoverSessionFiles(
+    scope.extraSessionDirs,
+    scope.extraArchiveDirs,
+    scope.sessionDir,
+    scope.archiveDir
+  )) {
+    if (pause.due()) await pause.yield();
+    let raw;
+    try {
+      raw = readFileSync3(file, "utf8");
+    } catch {
+      continue;
+    }
+    let matches = false;
+    let header;
+    for (const line of raw.split("\n")) {
+      let entry;
+      try {
+        entry = JSON.parse(line.replace(/^\uFEFF/, ""));
+      } catch {
+        continue;
+      }
+      const fields = [];
+      if (entry.type === "session") {
+        header = entry;
+        fields.push(entry.id, entry.cwd);
+      }
+      if (["session_info", "compaction", "branch_summary"].includes(entry.type)) {
+        fields.push(entry.name, entry.summary);
+      }
+      const msg = entry.type === "message" ? entry.message : void 0;
+      if (msg && ["user", "assistant"].includes(msg.role)) {
+        if (typeof msg.content === "string") fields.push(msg.content);
+        if (Array.isArray(msg.content)) for (const block of msg.content) {
+          if (block.type === "text") fields.push(block.text);
+          if (block.type === "toolCall") fields.push(block.arguments?.path);
+        }
+      }
+      if (msg?.role === "toolResult") {
+        fields.push(msg.details?.path);
+        if (Array.isArray(msg.nestedCalls?.calls)) {
+          for (const call of msg.nestedCalls.calls) fields.push(call.arguments?.path);
+        }
+      }
+      if (fields.some((value) => typeof value === "string" && value.toLowerCase().includes(needle))) matches = true;
+    }
+    if (!header || !matches) continue;
+    if (project && ![header.cwd, basename2(dirname3(file))].some((value) => typeof value === "string" && value.toLowerCase().includes(project.toLowerCase()))) continue;
+    const session = parseSession(file, archived);
+    if (!session) continue;
+    const prior = results.get(session.id);
+    if (!prior || prior.session.endedAt < session.endedAt) {
+      results.set(session.id, { session, summary: buildSummary(session), score: 1 });
+    }
+  }
+  return [...results.values()].sort((a, b) => b.session.startedAt.localeCompare(a.session.startedAt)).slice(0, limit);
+}
+
 // src/session-index.ts
-import { readFileSync as readFileSync3, writeFileSync as writeFileSync2, existsSync as existsSync3, mkdirSync as mkdirSync3, renameSync, statSync as statSync3 } from "node:fs";
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync2, existsSync as existsSync3, mkdirSync as mkdirSync3, renameSync, statSync as statSync3 } from "node:fs";
 import { join as join4 } from "node:path";
 import { DatabaseSync as DatabaseSync3 } from "node:sqlite";
 var FtsSide = class {
@@ -1011,7 +1082,7 @@ var SessionIndex = class {
   async load() {
     if (!existsSync3(this.indexPath)) return;
     try {
-      const raw = readFileSync3(this.indexPath, "utf8");
+      const raw = readFileSync4(this.indexPath, "utf8");
       const parsed = JSON.parse(raw);
       if (parsed.version === INDEX_VERSION) {
         this.data = parsed;
@@ -1389,8 +1460,8 @@ function createIndexService(options) {
     },
     // Results drop the raw message text: the tools never show it, and it is
     // the bulk of what would otherwise be cloned across the thread boundary.
-    async search(query, limit, project) {
-      const results = await open().search(query, limit, void 0, project);
+    async search(query, limit, project, mode) {
+      const results = mode === "literal" ? await searchLiteral(options, query, limit, project) : await open().search(query, limit, void 0, project);
       return results.map((r) => ({ ...r, session: stripHeavyFields(r.session) }));
     },
     async list(filters) {
@@ -1453,7 +1524,7 @@ function spawnIndexWorker(workerFile, options, onCrash) {
     load: () => call("load"),
     sync: (callbacks) => call("sync", [], callbacks),
     rebuild: (callbacks) => call("rebuild", [], callbacks),
-    search: (query, limit, project) => call("search", [query, limit, project]),
+    search: (query, limit, project, mode) => call("search", [query, limit, project, mode]),
     list: (filters) => call("list", [filters]),
     get: (fileOrId) => call("get", [fileOrId]),
     size: () => call("size"),
@@ -1465,14 +1536,14 @@ function spawnIndexWorker(workerFile, options, onCrash) {
 }
 
 // src/reader.ts
-import { readFileSync as readFileSync4 } from "node:fs";
+import { readFileSync as readFileSync5 } from "node:fs";
 function readSessionConversation(file, options) {
   const offset = options?.offset ?? 0;
   const limit = options?.limit ?? 50;
   const includeTools = options?.includeTools ?? false;
   let raw;
   try {
-    raw = readFileSync4(file, "utf8");
+    raw = readFileSync5(file, "utf8");
   } catch (err) {
     return `Error reading session: ${err.message}`;
   }
@@ -2082,15 +2153,19 @@ ${lines.join("\n")}
   pi.registerTool({
     name: "session_search",
     label: "Session Search",
-    description: "Semantic search over past pi sessions. Returns summaries of the most relevant sessions for a natural language query. Use to find previous work, decisions, debugging sessions, or code changes.",
+    description: "Search past pi sessions. Use indexed mode for topics; literal mode for exact project paths, session IDs and artifact names, including records missing from the index.",
     promptSnippet: "Semantic search over past pi sessions \u2014 find previous work, decisions, and context by topic.",
     promptGuidelines: [
       "Use session_search to find past coding sessions relevant to the current task (e.g. 'when did we refactor the auth module', 'previous work on Lambda timeouts').",
       "Pass the optional `project` parameter to limit search to a single project \u2014 use a substring of the project path or slug (e.g. 'pi-session-search').",
+      "Use literal mode first for an artifact path or name. If indexed searches produce no reliable candidate, switch to literal mode instead of repeatedly rephrasing. A match is a candidate; verify actual creation events with session_read.",
       "Use session_list for browsing by date/project. Use session_read to dive into a specific session."
     ],
     parameters: Type.Object({
-      query: Type.String({ description: "Natural language search query" }),
+      query: Type.String({ description: "Topic or literal identifier/path to find" }),
+      mode: Type.Optional(Type.Union([Type.Literal("indexed"), Type.Literal("literal")], {
+        description: "literal reads configured session records without embeddings or dependence on index freshness; default indexed"
+      })),
       project: Type.Optional(
         Type.String({
           description: "Filter by project name or path substring (matches projectSlug or cwd, same semantics as session_list)"
@@ -2109,25 +2184,26 @@ ${lines.join("\n")}
       const note = warming ? `${WARMING_NOTE}
 
 ` : "";
-      const limit = Math.min(params.limit ?? 10, 25);
+      const limit = Math.max(1, Math.min(params.limit ?? 10, 25));
+      const mode = params.mode ?? "indexed";
       try {
         const indexSize = await index.size();
-        if (indexSize === 0) {
+        if (indexSize === 0 && mode !== "literal") {
           return textResult(
             warming ? "Session index warming: no sessions indexed yet. Try again in a moment." : "Session index is empty."
           );
         }
-        const results = await index.search(params.query, limit, params.project);
+        const results = await index.search(params.query, limit, params.project, mode);
         if (results.length === 0) {
           const scope = params.project ? ` in project "${params.project}"` : "";
           return textResult(`${note}No relevant sessions found for: "${params.query}"${scope}`);
         }
         const home = process.env.HOME || "";
         const output = results.map((r, i) => {
-          const score = (r.score * 100).toFixed(1);
+          const score = mode === "literal" ? "literal match" : `${(r.score * 100).toFixed(1)}% match`;
           const displayFile = r.session.file.replace(home, "~");
           return [
-            `### ${i + 1}. ${r.session.name || truncate2(r.session.firstUserMessage, 80)} (${score}% match)`,
+            `### ${i + 1}. ${r.session.name || truncate2(r.session.firstUserMessage, 80)} (${score})`,
             `File: ${displayFile}`,
             `ID: ${r.session.id}`,
             `Date: ${r.session.startedAt.split("T")[0]} | CWD: ${r.session.cwd}`,
@@ -2142,6 +2218,7 @@ ${lines.join("\n")}
           resultCount: results.length,
           indexSize,
           project: params.project,
+          mode,
           warming
         });
       } catch (err) {

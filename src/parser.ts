@@ -227,6 +227,13 @@ export function parseSession(
   const toolCallMap = new Map<string, number>();
   const filesRead = new Set<string>();
   const filesModified = new Set<string>();
+  const callArguments = new Map<string, { name: string; arguments: any }>();
+  const trackFile = (toolName: string, args: any) => {
+    const path = args?.path;
+    if (typeof path !== "string" || !path) return;
+    if (["read", "lsp_hover", "lsp_definition"].includes(toolName)) filesRead.add(path);
+    if (["write", "edit"].includes(toolName)) filesModified.add(path);
+  };
   const userMessages: string[] = [];
   const compactionSummaries: string[] = [];
   const branchSummaries: string[] = [];
@@ -270,21 +277,27 @@ export function parseSession(
               if (block.type === "toolCall") {
                 const name = block.name;
                 toolCallMap.set(name, (toolCallMap.get(name) ?? 0) + 1);
+                if (typeof block.id === "string") callArguments.set(block.id, block);
               }
             }
           }
         }
 
         if (msg.role === "toolResult") {
-          const tn = msg.toolName;
-          // Track file operations
-          if (tn === "read" || tn === "lsp_hover" || tn === "lsp_definition") {
-            const path = extractPathFromToolResult(entry, msg);
-            if (path) filesRead.add(path);
+          // A request is not evidence of a completed file operation. Correlate
+          // successful results with arguments, including codemode nested calls.
+          if (!msg.isError) {
+            const call = callArguments.get(msg.toolCallId);
+            const tn = call?.name ?? msg.toolName;
+            const path = call?.arguments?.path ?? msg.details?.path;
+            trackFile(tn, { path });
           }
-          if (tn === "write" || tn === "edit") {
-            const path = extractPathFromToolResult(entry, msg);
-            if (path) filesModified.add(path);
+          if (Array.isArray(msg.nestedCalls?.calls)) {
+            for (const call of msg.nestedCalls.calls) {
+              if (call.status !== "ok") continue;
+              toolCallMap.set(call.name, (toolCallMap.get(call.name) ?? 0) + 1);
+              trackFile(call.name, call.arguments);
+            }
           }
         }
         break;
@@ -350,23 +363,4 @@ function extractTextContent(content: any): string {
       .join("\n");
   }
   return "";
-}
-
-/**
- * Try to extract a file path from a tool result entry.
- * We look at the parent assistant message's tool call arguments.
- */
-function extractPathFromToolResult(_entry: SessionEntry, msg: any): string | null {
-  // Tool results often have details with path info
-  if (msg.details?.path) return msg.details.path;
-  if (msg.details?.diff) {
-    // edit tool — path is in the diff header
-    const match = msg.details.diff?.match?.(/^  \d+ (.*)/m);
-    if (match) return match[1];
-  }
-  // Try content for read tool
-  if (msg.toolName === "read" && msg.content?.[0]?.text) {
-    // The content is the file content, not the path — skip
-  }
-  return null;
 }

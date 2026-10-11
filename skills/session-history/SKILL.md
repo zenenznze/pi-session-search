@@ -12,9 +12,11 @@ Search, browse, and introspect on past pi coding sessions — including archived
 This skill provides three tools:
 
 ### session_search
-Semantic search across all indexed sessions. Use for finding sessions by topic, technology, or intent.
+Search topics through the index, or exact names/paths directly through configured session records. Literal mode makes no embedding request and does not depend on index freshness.
 
 ```
+session_search(query="cover-skill", mode="literal")
+session_search(query="/projects/cover-skill/PLAN.md", mode="literal")
 session_search(query="refactoring the auth module")
 session_search(query="Lambda timeout debugging", limit=5)
 session_search(query="setting up CI pipeline for myapp")
@@ -42,9 +44,10 @@ session_read(session="...", include_tools=true)             # Include tool call 
 
 ## Workflow
 
-1. **Find sessions**: Use `session_search` for semantic queries or `session_list` for browsing
-2. **Read details**: Use `session_read` with the file path from results to see the full conversation
-3. **Extract context**: Use information from past sessions to inform current work
+1. **Find sessions**: For an artifact name/path or session ID use `session_search(mode="literal")`; for a topic use indexed search, scoped to the known project first. Expand scope only when the artifact may have been developed elsewhere.
+2. **Verify provenance**: A mention is only a candidate. Read actual creation/edit events with `session_read(include_tools=true)` and compare repository history when available. After one or two unproductive indexed queries, switch modes instead of repeatedly rephrasing.
+3. **Recover identity**: Report session ID and original CWD independently of the artifact repository. Resuming uses the session header CWD; opening in another project can fork the history.
+4. **Extract context**: Read only relevant pages; unavailable fields or no matches are coverage limits, not proof of absence.
 
 ## Setup
 

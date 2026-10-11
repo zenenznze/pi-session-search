@@ -11,6 +11,7 @@ import { Worker } from "node:worker_threads";
 import { createEmbedder } from "./embedder";
 import type { EmbedderConfig } from "./embedder";
 import { FtsSessionIndex } from "./fts-index";
+import { searchLiteral } from "./literal-search";
 import type { ParsedSession } from "./parser";
 import { SessionIndex, stripHeavyFields } from "./session-index";
 import type { ListFilters, SearchResult } from "./session-index";
@@ -48,7 +49,7 @@ export interface IndexService {
   load(): Promise<number>;
   sync(callbacks?: SyncCallbacks): Promise<SyncResult>;
   rebuild(callbacks?: SyncCallbacks): Promise<void>;
-  search(query: string, limit: number, project?: string): Promise<SearchResult[]>;
+  search(query: string, limit: number, project?: string, mode?: "indexed" | "literal"): Promise<SearchResult[]>;
   list(filters?: ListFilters): Promise<ParsedSession[]>;
   get(fileOrId: string): Promise<IndexEntry | undefined>;
   size(): Promise<number>;
@@ -123,8 +124,10 @@ export function createIndexService(options: IndexOptions): IndexService {
     },
     // Results drop the raw message text: the tools never show it, and it is
     // the bulk of what would otherwise be cloned across the thread boundary.
-    async search(query, limit, project) {
-      const results = await open().search(query, limit, undefined, project);
+    async search(query, limit, project, mode) {
+      const results = mode === "literal"
+        ? await searchLiteral(options, query, limit, project)
+        : await open().search(query, limit, undefined, project);
       return results.map((r) => ({ ...r, session: stripHeavyFields(r.session) }));
     },
     async list(filters) {
@@ -212,7 +215,7 @@ export function spawnIndexWorker(
     load: () => call("load"),
     sync: (callbacks) => call("sync", [], callbacks),
     rebuild: (callbacks) => call("rebuild", [], callbacks),
-    search: (query, limit, project) => call("search", [query, limit, project]),
+    search: (query, limit, project, mode) => call("search", [query, limit, project, mode]),
     list: (filters) => call("list", [filters]),
     get: (fileOrId) => call("get", [fileOrId]),
     size: () => call("size"),
@@ -235,13 +238,13 @@ export async function handleWorkerRequest(
     onProgress: (msg) => post({ id: req.id, type: "progress", msg }),
     onError: (msg) => post({ id: req.id, type: "notice", msg }),
   };
-  const [a, b, c] = req.args as any[];
+  const [a, b, c, d] = req.args as any[];
   try {
     const value = await {
       load: () => service.load(),
       sync: () => service.sync(callbacks),
       rebuild: () => service.rebuild(callbacks),
-      search: () => service.search(a, b, c),
+      search: () => service.search(a, b, c, d),
       list: () => service.list(a),
       get: () => service.get(a),
       size: () => service.size(),

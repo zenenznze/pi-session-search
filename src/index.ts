@@ -686,16 +686,20 @@ export default function (pi: ExtensionAPI) {
     name: "session_search",
     label: "Session Search",
     description:
-      "Semantic search over past pi sessions. Returns summaries of the most relevant sessions for a natural language query. Use to find previous work, decisions, debugging sessions, or code changes.",
+      "Search past pi sessions. Use indexed mode for topics; literal mode for exact project paths, session IDs and artifact names, including records missing from the index.",
     promptSnippet:
       "Semantic search over past pi sessions — find previous work, decisions, and context by topic.",
     promptGuidelines: [
       "Use session_search to find past coding sessions relevant to the current task (e.g. 'when did we refactor the auth module', 'previous work on Lambda timeouts').",
       "Pass the optional `project` parameter to limit search to a single project — use a substring of the project path or slug (e.g. 'pi-session-search').",
+      "Use literal mode first for an artifact path or name. If indexed searches produce no reliable candidate, switch to literal mode instead of repeatedly rephrasing. A match is a candidate; verify actual creation events with session_read.",
       "Use session_list for browsing by date/project. Use session_read to dive into a specific session.",
     ],
     parameters: Type.Object({
-      query: Type.String({ description: "Natural language search query" }),
+      query: Type.String({ description: "Topic or literal identifier/path to find" }),
+      mode: Type.Optional(Type.Union([Type.Literal("indexed"), Type.Literal("literal")], {
+        description: "literal reads configured session records without embeddings or dependence on index freshness; default indexed",
+      })),
       project: Type.Optional(
         Type.String({
           description:
@@ -714,11 +718,12 @@ export default function (pi: ExtensionAPI) {
       const warming = indexState === "warming";
       const note = warming ? `${WARMING_NOTE}\n\n` : "";
 
-      const limit = Math.min(params.limit ?? 10, 25);
+      const limit = Math.max(1, Math.min(params.limit ?? 10, 25));
+      const mode = params.mode ?? "indexed";
 
       try {
         const indexSize = await index.size();
-        if (indexSize === 0) {
+        if (indexSize === 0 && mode !== "literal") {
           return textResult(
             warming
               ? "Session index warming: no sessions indexed yet. Try again in a moment."
@@ -726,7 +731,7 @@ export default function (pi: ExtensionAPI) {
           );
         }
 
-        const results = await index.search(params.query, limit, params.project);
+        const results = await index.search(params.query, limit, params.project, mode);
 
         if (results.length === 0) {
           const scope = params.project ? ` in project "${params.project}"` : "";
@@ -736,10 +741,10 @@ export default function (pi: ExtensionAPI) {
         const home = process.env.HOME || "";
         const output = results
           .map((r, i) => {
-            const score = (r.score * 100).toFixed(1);
+            const score = mode === "literal" ? "literal match" : `${(r.score * 100).toFixed(1)}% match`;
             const displayFile = r.session.file.replace(home, "~");
             return [
-              `### ${i + 1}. ${r.session.name || truncate(r.session.firstUserMessage, 80)} (${score}% match)`,
+              `### ${i + 1}. ${r.session.name || truncate(r.session.firstUserMessage, 80)} (${score})`,
               `File: ${displayFile}`,
               `ID: ${r.session.id}`,
               `Date: ${r.session.startedAt.split("T")[0]} | CWD: ${r.session.cwd}`,
@@ -755,6 +760,7 @@ export default function (pi: ExtensionAPI) {
           resultCount: results.length,
           indexSize,
           project: params.project,
+          mode,
           warming,
         });
       } catch (err: any) {

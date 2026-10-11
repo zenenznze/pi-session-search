@@ -350,6 +350,9 @@ export function buildContent(s: ParsedSession): string {
   const parts: string[] = [];
   if (s.name) parts.push(s.name);
   parts.push(s.userMessages.join("\n"));
+  if (s.assistantText) parts.push(s.assistantText);
+  parts.push(s.cwd, s.id);
+  if (s.filesRead?.length) parts.push(s.filesRead.join(" "));
   if (s.compactionSummaries?.length) parts.push(s.compactionSummaries.join("\n"));
   if (s.branchSummaries?.length) parts.push(s.branchSummaries.join("\n"));
   if (s.filesModified?.length) parts.push(s.filesModified.join(" "));
