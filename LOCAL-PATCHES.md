@@ -11,4 +11,4 @@ Verification: npm run build; npm run check; npm test. The artifact-search regres
 
 Use this local source as a Pi package. Preserve other package declarations, enable exactly one session-search package, and run a resource-load check. Reload/new sessions are needed for runtime changes; current sessions can retain the previous tool schema.
 
-The upstream remote is provenance, not a writable delivery destination. No upstream push, npm publication or remote fork creation is implied. A writable remote can be configured only after explicit authorization.
+The GitHub `origin` remote is upstream provenance. The user-authorized private Gitea repository `joe/pi-session-search` is the maintained delivery destination, configured as remote `gitea`; local `main` tracks `gitea/main`. Preserve the upstream history, LICENSE and attribution. Gitea delivery does not imply upstream push or npm publication.
