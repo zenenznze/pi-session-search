@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.7.0 (maintained fork)
+
+First npm release of the maintained fork `@leo_aifirst/pi-session-search`, based on upstream 1.6.0
+(commit `5a910e7c3a238d347e90020147815227b567b85e`). MIT; original LICENSE and attribution retained.
+
+### Added
+
+- `session_search(mode="literal")` searches the configured session roots directly. It decodes session
+  JSONL without depending on index freshness or embeddings, and covers message text, metadata and path
+  arguments. It does not export raw logs and does not search generated write content.
+- Newly indexed FTS records carry assistant text, cwd/id and read/modified file paths.
+
+### Fixed
+
+- Successful direct tool results are correlated with their tool-call arguments; successful codemode
+  nested file operations are extracted as well. Failed or pending calls no longer count as completed writes.
+
+### Notes
+
+- The indexed API remains the default and existing persisted rows are not silently rebuilt; use literal
+  mode immediately, or `/session-reindex` to refresh all rows. A hybrid re-index may incur embedding cost.
+- Upstream history and LICENSE are preserved. The full patch description and its verification are in
+  [LOCAL-PATCHES.md](./LOCAL-PATCHES.md).
+
 ## 1.6.0
 
 The first npm release since 1.4.3. It also ships everything listed under 1.5.0, which reached GitHub but never npm.

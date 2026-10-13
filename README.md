@@ -2,6 +2,15 @@
 
 Index, summarize, and search past [pi](https://github.com/badlogic/pi-mono) coding sessions. Works out of the box with zero configuration — FTS5 keyword search is always on, with optional semantic embeddings for hybrid search.
 
+> **Maintained fork.** `@leo_aifirst/pi-session-search` is a fork of
+> [samfoy/pi-session-search](https://github.com/samfoy/pi-session-search) v1.6.0 (MIT; original `LICENSE`
+> and attribution retained). It adds correlation of successful tool-call arguments — including successful
+> codemode nested file operations — with indexed files, richer indexed records (assistant text, cwd/id,
+> read/modified paths) and `session_search(mode="literal")`, which decodes the configured session roots
+> without depending on index freshness. See [LOCAL-PATCHES.md](./LOCAL-PATCHES.md) for the exact patch and
+> its verification notes. Upstream history and LICENSE are preserved; the private Gitea mirror is not a
+> distribution channel.
+
 ## Features
 
 - **Zero-config search** — FTS5 keyword search works immediately, no API keys or embedder needed
@@ -22,7 +31,13 @@ Index, summarize, and search past [pi](https://github.com/badlogic/pi-mono) codi
 pi install pi-total-recall
 ```
 
-Or install pi-session-search standalone:
+Or install the maintained fork standalone:
+
+```bash
+pi install npm:@leo_aifirst/pi-session-search@1.7.0
+```
+
+Or install upstream pi-session-search standalone:
 
 ```bash
 pi install pi-session-search

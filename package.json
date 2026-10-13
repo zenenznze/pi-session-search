@@ -1,6 +1,6 @@
 {
-  "name": "pi-session-search",
-  "version": "1.6.0",
+  "name": "@leo_aifirst/pi-session-search",
+  "version": "1.7.0",
   "description": "Index, summarize, and search past pi sessions. Covers both active and archived sessions, enabling semantic search and introspection over your coding history.",
   "type": "module",
   "keywords": [
@@ -15,11 +15,15 @@
   "author": "Sam Painter",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/samfoy/pi-session-search.git"
+    "url": "git+https://github.com/zenenznze/pi-session-search.git"
   },
-  "homepage": "https://github.com/samfoy/pi-session-search#readme",
+  "homepage": "https://github.com/zenenznze/pi-session-search#readme",
   "bugs": {
-    "url": "https://github.com/samfoy/pi-session-search/issues"
+    "url": "https://github.com/zenenznze/pi-session-search/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
   },
   "engines": {
     "node": ">=22.19.0"
@@ -31,6 +35,7 @@
     "skills",
     "README.md",
     "CHANGELOG.md",
+    "LOCAL-PATCHES.md",
     "LICENSE"
   ],
   "pi": {
@@ -62,6 +67,7 @@
     "test": "node --test --import tsx src/**/*.test.ts",
     "build": "esbuild src/index.ts src/index-worker.ts --bundle --platform=node --format=esm --outdir=dist --sourcemap --packages=external",
     "check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "dev": "esbuild src/index.ts src/index-worker.ts --bundle --platform=node --format=esm --outdir=dist --sourcemap --packages=external --watch",
     "prepack": "npm run build"
   }

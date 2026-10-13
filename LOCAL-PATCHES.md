@@ -1,6 +1,6 @@
 # Maintained local patch
 
-Base: upstream pi-session-search v1.6.0, commit 5a910e7c3a238d347e90020147815227b567b85e, MIT. Original LICENSE and attribution retained. This checkout is a source deliverable; it is not an edit to the npm installation.
+Base: upstream pi-session-search v1.6.0, commit 5a910e7c3a238d347e90020147815227b567b85e, MIT. Original LICENSE and attribution retained. This checkout is the public source of the published npm package `@leo_aifirst/pi-session-search`; it is not an edit to the npm installation.
 
 - Correlate successful direct results with tool-call arguments; extract successful codemode nested file operations. Failed/pending calls do not count as completed writes.
 - Include assistant text, CWD/ID and read/modified file paths in newly indexed FTS records.
@@ -9,6 +9,12 @@ Base: upstream pi-session-search v1.6.0, commit 5a910e7c3a238d347e90020147815227
 
 Verification: npm run build; npm run check; npm test. The artifact-search regression uses an empty index, Chinese/spaced path, successful nested write, failed nested edit, project rejection and no write-content search, across a real worker thread.
 
-Use this local source as a Pi package. Preserve other package declarations, enable exactly one session-search package, and run a resource-load check. Reload/new sessions are needed for runtime changes; current sessions can retain the previous tool schema.
+## Distribution
 
-The GitHub `origin` remote is upstream provenance. The user-authorized private Gitea repository `joe/pi-session-search` is the maintained delivery destination, configured as remote `gitea`; local `main` tracks `gitea/main`. Preserve the upstream history, LICENSE and attribution. Gitea delivery does not imply upstream push or npm publication.
+- Public source: https://github.com/zenenznze/pi-session-search.git (remote `github`; npm provenance).
+- npm: `@leo_aifirst/pi-session-search`, scope `leo_aifirst`, published public from the exact tested tarball.
+- Private maintained mirror: `ssh://gitea/joe/pi-session-search.git` (remote `gitea`; local `main` tracks `gitea/main`).
+- The GitHub `origin` remote is upstream provenance (`samfoy/pi-session-search`), not a delivery destination.
+- Upstream history, LICENSE and attribution are preserved. Publishing a fork does not imply an upstream push; an upstream pull request for these patches is a separate, optional step.
+
+Use the published package as a Pi package: install the exact npm version, preserve other package declarations, enable exactly one session-search package, and run a resource-load check. Reload/new sessions are needed for runtime changes; current sessions can retain the previous tool schema.
